@@ -132,6 +132,7 @@ typedef struct sg_request {	/* SG_MAX_QUEUE requests outstanding per file */
 	char sg_io_owned;	/* 1 -> packet belongs to SG_IO */
 	/* done protected by rq_list_lock */
 	char done;		/* 0->before bh, 1->before read, 2->read */
+	unsigned time_started;  /* timestamp of request start in milliseconds */
 	struct request *rq;
 	struct bio *bio;
 	struct execute_work ew;
@@ -815,7 +816,8 @@ sg_common_write(Sg_fd * sfp, Sg_request * srp,
 		return -ENODEV;
 	}
 
-	hp->duration = jiffies_to_msecs(jiffies);
+	hp->duration = 0;
+	srp->time_started = jiffies_to_msecs(jiffies);
 	if (hp->interface_id != '\0' &&	/* v3 (or later) interface */
 	    (SG_FLAG_Q_AT_TAIL & hp->flags))
 		at_head = 0;
@@ -871,8 +873,8 @@ sg_fill_request_table(Sg_fd *sfp, sg_req_info_t *rinfo)
 		else {
 			ms = jiffies_to_msecs(jiffies);
 			rinfo[val].duration =
-				(ms > srp->header.duration) ?
-				(ms - srp->header.duration) : 0;
+				(ms > srp->time_started) ?
+				(ms - srp->time_started) : 0;
 		}
 		rinfo[val].orphan = srp->orphan;
 		rinfo[val].sg_io_owned = srp->sg_io_owned;
@@ -1339,8 +1341,10 @@ sg_rq_end_io(struct request *rq, blk_status_t status)
 				      srp->header.pack_id, result));
 	srp->header.resid = resid;
 	ms = jiffies_to_msecs(jiffies);
-	srp->header.duration = (ms > srp->header.duration) ?
-				(ms - srp->header.duration) : 0;
+	srp->header.duration = (ms > srp->time_started) ?
+				(ms - srp->time_started) : 0;
+	smp_wmb();  /* srp->header.duration must be written before srp->done */
+		    /* to ensure a 0 is not printed when srp->done == 1 */
 	if (0 != result) {
 		struct scsi_sense_hdr sshdr;
 
@@ -2110,7 +2114,7 @@ sg_add_request(Sg_fd * sfp)
 	}
 	memset(rp, 0, sizeof (Sg_request));
 	rp->parentfp = sfp;
-	rp->header.duration = jiffies_to_msecs(jiffies);
+	rp->time_started = jiffies_to_msecs(jiffies);
 	list_add_tail(&rp->entry, &sfp->rq_list);
 	write_unlock_irqrestore(&sfp->rq_list_lock, iflags);
 	return rp;
@@ -2561,14 +2565,17 @@ static void sg_proc_debug_helper(struct seq_file *s, Sg_device * sdp)
 				  : "act:");
 			seq_printf(s, " id=%d blen=%d",
 				   srp->header.pack_id, blen);
-			if (srp->done)
+			if (srp->done) {
+				/* A pair to the smp_wmb() in sg_rq_end_io */
+				smp_rmb();
 				seq_printf(s, " dur=%d", hp->duration);
-			else {
+			} else {
 				ms = jiffies_to_msecs(jiffies);
 				seq_printf(s, " t_o/elap=%d/%d",
 					(new_interface ? hp->timeout :
 						  jiffies_to_msecs(fp->timeout)),
-					(ms > hp->duration ? ms - hp->duration : 0));
+					(ms > srp->time_started ?
+					 ms - srp->time_started : 0));
 			}
 			seq_printf(s, "ms sgat=%d op=0x%02x\n", usg,
 				   (int) srp->data.cmd_opcode);
