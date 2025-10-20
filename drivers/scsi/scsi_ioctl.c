@@ -426,7 +426,6 @@ static int scsi_complete_sghdr_rq(struct request *rq, struct sg_io_hdr *hdr,
 static int sg_io(struct scsi_device *sdev, struct sg_io_hdr *hdr,
 		bool open_for_write)
 {
-	unsigned long start_time;
 	ssize_t ret = 0;
 	int writing = 0;
 	int at_head = 0;
@@ -478,11 +477,9 @@ static int sg_io(struct scsi_device *sdev, struct sg_io_hdr *hdr,
 	bio = rq->bio;
 	scmd->allowed = 0;
 
-	start_time = jiffies;
+	hdr->start_time = jiffies_to_msecs(jiffies);
 
 	blk_execute_rq(rq, at_head);
-
-	hdr->duration = jiffies_to_msecs(jiffies - start_time);
 
 	ret = scsi_complete_sghdr_rq(rq, hdr, bio);
 
@@ -655,7 +652,7 @@ int put_sg_io_hdr(const struct sg_io_hdr *hdr, void __user *argp)
 			.host_status	 = hdr->host_status,
 			.driver_status	 = hdr->driver_status,
 			.resid		 = hdr->resid,
-			.duration	 = hdr->duration,
+			.start_time	 = hdr->start_time,
 			.info		 = hdr->info,
 		};
 
@@ -703,7 +700,7 @@ int get_sg_io_hdr(struct sg_io_hdr *hdr, const void __user *argp)
 			.host_status	 = hdr32.host_status,
 			.driver_status	 = hdr32.driver_status,
 			.resid		 = hdr32.resid,
-			.duration	 = hdr32.duration,
+			.start_time	 = hdr32.start_time,
 			.info		 = hdr32.info,
 		};
 

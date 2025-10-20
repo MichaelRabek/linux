@@ -60,7 +60,7 @@ typedef struct sg_io_hdr
     unsigned short host_status; /* [o] errors from host adapter */
     unsigned short driver_status;/* [o] errors from software driver */
     int resid;                  /* [o] dxfer_len - actual_transferred */
-    unsigned int duration;      /* [o] time taken by cmd (unit: millisec) */
+    unsigned int start_time;    /* [o] time taken by cmd (unit: millisec) */
     unsigned int info;          /* [o] auxiliary information */
 } sg_io_hdr_t;  /* 64 bytes long (on i386) */
 
@@ -89,7 +89,7 @@ struct compat_sg_io_hdr {
 	unsigned short host_status;	/* [o] errors from host adapter */
 	unsigned short driver_status;	/* [o] errors from software driver */
 	compat_int_t resid;		/* [o] dxfer_len - actual_transferred */
-	compat_uint_t duration;		/* [o] time taken by cmd (unit: millisec) */
+	compat_uint_t start_time;	/* [o] time taken by cmd (unit: millisec) */
 	compat_uint_t info;		/* [o] auxiliary information */
 };
 #endif

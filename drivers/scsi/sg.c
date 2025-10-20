@@ -815,7 +815,7 @@ sg_common_write(Sg_fd * sfp, Sg_request * srp,
 		return -ENODEV;
 	}
 
-	hp->duration = jiffies_to_msecs(jiffies);
+	hp->start_time = jiffies_to_msecs(jiffies);
 	if (hp->interface_id != '\0' &&	/* v3 (or later) interface */
 	    (SG_FLAG_Q_AT_TAIL & hp->flags))
 		at_head = 0;
@@ -865,15 +865,10 @@ sg_fill_request_table(Sg_fd *sfp, sg_req_info_t *rinfo)
 			srp->header.masked_status &
 			srp->header.host_status &
 			srp->header.driver_status;
-		if (srp->done)
-			rinfo[val].duration =
-				srp->header.duration;
-		else {
-			ms = jiffies_to_msecs(jiffies);
-			rinfo[val].duration =
-				(ms > srp->header.duration) ?
-				(ms - srp->header.duration) : 0;
-		}
+		ms = jiffies_to_msecs(jiffies);
+		rinfo[val].duration =
+			(ms > srp->header.start_time) ?
+			(ms - srp->header.start_time) : 0;
 		rinfo[val].orphan = srp->orphan;
 		rinfo[val].sg_io_owned = srp->sg_io_owned;
 		rinfo[val].pack_id = srp->header.pack_id;
@@ -1315,7 +1310,6 @@ sg_rq_end_io(struct request *rq, blk_status_t status)
 	Sg_device *sdp;
 	Sg_fd *sfp;
 	unsigned long iflags;
-	unsigned int ms;
 	char *sense;
 	int result, resid, done = 1;
 
@@ -1338,9 +1332,6 @@ sg_rq_end_io(struct request *rq, blk_status_t status)
 				      "sg_cmd_done: pack_id=%d, res=0x%x\n",
 				      srp->header.pack_id, result));
 	srp->header.resid = resid;
-	ms = jiffies_to_msecs(jiffies);
-	srp->header.duration = (ms > srp->header.duration) ?
-				(ms - srp->header.duration) : 0;
 	if (0 != result) {
 		struct scsi_sense_hdr sshdr;
 
@@ -2110,7 +2101,7 @@ sg_add_request(Sg_fd * sfp)
 	}
 	memset(rp, 0, sizeof (Sg_request));
 	rp->parentfp = sfp;
-	rp->header.duration = jiffies_to_msecs(jiffies);
+	rp->header.start_time = jiffies_to_msecs(jiffies);
 	list_add_tail(&rp->entry, &sfp->rq_list);
 	write_unlock_irqrestore(&sfp->rq_list_lock, iflags);
 	return rp;
@@ -2525,6 +2516,7 @@ static void sg_proc_debug_helper(struct seq_file *s, Sg_device * sdp)
 	const sg_io_hdr_t *hp;
 	const char * cp;
 	unsigned int ms;
+	unsigned int elapsed;
 
 	k = 0;
 	list_for_each_entry(fp, &sdp->sfds, sfd_siblings) {
@@ -2561,14 +2553,17 @@ static void sg_proc_debug_helper(struct seq_file *s, Sg_device * sdp)
 				  : "act:");
 			seq_printf(s, " id=%d blen=%d",
 				   srp->header.pack_id, blen);
-			if (srp->done)
-				seq_printf(s, " dur=%d", hp->duration);
-			else {
-				ms = jiffies_to_msecs(jiffies);
-				seq_printf(s, " t_o/elap=%d/%d",
+			ms = jiffies_to_msecs(jiffies);
+			elapsed =
+			       (ms > hp->start_time ?
+				ms - hp->start_time : 0);
+			if (srp->done) {
+				seq_printf(s, " dur=%u", elapsed);
+			} else {
+				seq_printf(s, " t_o/elap=%u/%u",
 					(new_interface ? hp->timeout :
 						  jiffies_to_msecs(fp->timeout)),
-					(ms > hp->duration ? ms - hp->duration : 0));
+					elapsed);
 			}
 			seq_printf(s, "ms sgat=%d op=0x%02x\n", usg,
 				   (int) srp->data.cmd_opcode);
