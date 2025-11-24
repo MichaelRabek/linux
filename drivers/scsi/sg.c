@@ -2525,6 +2525,8 @@ static void sg_proc_debug_helper(struct seq_file *s, Sg_device * sdp)
 	const sg_io_hdr_t *hp;
 	const char * cp;
 	unsigned int ms;
+	unsigned int duration;
+	unsigned int timeout;
 
 	k = 0;
 	list_for_each_entry(fp, &sdp->sfds, sfd_siblings) {
@@ -2565,10 +2567,11 @@ static void sg_proc_debug_helper(struct seq_file *s, Sg_device * sdp)
 				seq_printf(s, " dur=%d", hp->duration);
 			else {
 				ms = jiffies_to_msecs(jiffies);
-				seq_printf(s, " t_o/elap=%d/%d",
-					(new_interface ? hp->timeout :
-						  jiffies_to_msecs(fp->timeout)),
-					(ms > hp->duration ? ms - hp->duration : 0));
+				duration = ms - READ_ONCE(hp->duration);
+				timeout = (new_interface ? hp->timeout :
+						  jiffies_to_msecs(fp->timeout));
+				seq_printf(s, " t_o/elap=%d/%d", timeout,
+					(duration <= timeout ? duration : 0));
 			}
 			seq_printf(s, "ms sgat=%d op=0x%02x\n", usg,
 				   (int) srp->data.cmd_opcode);
